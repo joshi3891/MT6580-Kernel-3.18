@@ -839,6 +839,8 @@ static void drm_dp_put_mst_branch_device(struct drm_dp_mst_branch *mstb)
 
 static void drm_dp_port_teardown_pdt(struct drm_dp_mst_port *port, int old_pdt)
 {
+	struct drm_dp_mst_branch *mstb;
+
 	switch (old_pdt) {
 	case DP_PEER_DEVICE_DP_LEGACY_CONV:
 	case DP_PEER_DEVICE_SST_SINK:
@@ -846,8 +848,9 @@ static void drm_dp_port_teardown_pdt(struct drm_dp_mst_port *port, int old_pdt)
 		drm_dp_mst_unregister_i2c_bus(&port->aux);
 		break;
 	case DP_PEER_DEVICE_MST_BRANCHING:
-		drm_dp_put_mst_branch_device(port->mstb);
+		mstb = port->mstb;
 		port->mstb = NULL;
+		drm_dp_put_mst_branch_device(mstb);
 		break;
 	}
 }
@@ -1149,6 +1152,8 @@ static struct drm_dp_mst_branch *drm_dp_get_mst_branch_device(struct drm_dp_mst_
 	struct drm_dp_mst_port *port;
 	int i;
 	/* find the port by iterating down */
+
+	mutex_lock(&mgr->lock);
 	mstb = mgr->mst_primary;
 
 	for (i = 0; i < lct - 1; i++) {
@@ -1168,6 +1173,7 @@ static struct drm_dp_mst_branch *drm_dp_get_mst_branch_device(struct drm_dp_mst_
 		}
 	}
 	kref_get(&mstb->kref);
+	mutex_unlock(&mgr->lock);
 	return mstb;
 }
 
@@ -1175,7 +1181,7 @@ static void drm_dp_check_and_send_link_address(struct drm_dp_mst_topology_mgr *m
 					       struct drm_dp_mst_branch *mstb)
 {
 	struct drm_dp_mst_port *port;
-
+	struct drm_dp_mst_branch *mstb_child;
 	if (!mstb->link_address_sent) {
 		drm_dp_send_link_address(mgr, mstb);
 		mstb->link_address_sent = true;
@@ -1190,17 +1196,31 @@ static void drm_dp_check_and_send_link_address(struct drm_dp_mst_topology_mgr *m
 		if (!port->available_pbn)
 			drm_dp_send_enum_path_resources(mgr, mstb, port);
 
-		if (port->mstb)
-			drm_dp_check_and_send_link_address(mgr, port->mstb);
+		if (port->mstb) {
+			mstb_child = drm_dp_get_validated_mstb_ref(mgr, port->mstb);
+			if (mstb_child) {
+				drm_dp_check_and_send_link_address(mgr, mstb_child);
+				drm_dp_put_mst_branch_device(mstb_child);
+			}
+		}
 	}
 }
 
 static void drm_dp_mst_link_probe_work(struct work_struct *work)
 {
 	struct drm_dp_mst_topology_mgr *mgr = container_of(work, struct drm_dp_mst_topology_mgr, work);
+	struct drm_dp_mst_branch *mstb;
 
-	drm_dp_check_and_send_link_address(mgr, mgr->mst_primary);
-
+	mutex_lock(&mgr->lock);
+	mstb = mgr->mst_primary;
+	if (mstb) {
+		kref_get(&mstb->kref);
+	}
+	mutex_unlock(&mgr->lock);
+	if (mstb) {
+		drm_dp_check_and_send_link_address(mgr, mstb);
+		drm_dp_put_mst_branch_device(mstb);
+	}
 }
 
 static bool drm_dp_validate_guid(struct drm_dp_mst_topology_mgr *mgr,
@@ -1798,27 +1818,17 @@ static int drm_dp_send_up_ack_reply(struct drm_dp_mst_topology_mgr *mgr,
 	return 0;
 }
 
-static bool drm_dp_get_vc_payload_bw(int dp_link_bw,
-				     int dp_link_count,
-				     int *out)
+static int drm_dp_get_vc_payload_bw(int dp_link_bw, int dp_link_count)
 {
 	switch (dp_link_bw) {
-	default:
-		DRM_DEBUG_KMS("invalid link bandwidth in DPCD: %x (link count: %d)\n",
-			      dp_link_bw, dp_link_count);
-		return false;
-
 	case DP_LINK_BW_1_62:
-		*out = 3 * dp_link_count;
-		break;
+		return 3 * dp_link_count;
 	case DP_LINK_BW_2_7:
-		*out = 5 * dp_link_count;
-		break;
+		return 5 * dp_link_count;
 	case DP_LINK_BW_5_4:
-		*out = 10 * dp_link_count;
-		break;
+		return 10 * dp_link_count;
 	}
-	return true;
+	BUG();
 }
 
 /**
@@ -1850,13 +1860,7 @@ int drm_dp_mst_topology_mgr_set_mst(struct drm_dp_mst_topology_mgr *mgr, bool ms
 			goto out_unlock;
 		}
 
-		if (!drm_dp_get_vc_payload_bw(mgr->dpcd[1],
-					      mgr->dpcd[2] & DP_MAX_LANE_COUNT_MASK,
-					      &mgr->pbn_div)) {
-			ret = -EINVAL;
-			goto out_unlock;
-		}
-
+		mgr->pbn_div = drm_dp_get_vc_payload_bw(mgr->dpcd[1], mgr->dpcd[2] & DP_MAX_LANE_COUNT_MASK);
 		mgr->total_pbn = 2560;
 		mgr->total_slots = DIV_ROUND_UP(mgr->total_pbn, mgr->pbn_div);
 		mgr->avail_slots = mgr->total_slots;

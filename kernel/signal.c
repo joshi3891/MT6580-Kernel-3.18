@@ -9,7 +9,6 @@
  *		Changes to use preallocated sigqueue structures
  *		to allow signals to be sent reliably.
  */
-#define DEBUG
 
 #include <linux/slab.h>
 #include <linux/export.h>
@@ -841,9 +840,7 @@ static bool prepare_signal(int sig, struct task_struct *p, bool force)
 
 	if (signal->flags & (SIGNAL_GROUP_EXIT | SIGNAL_GROUP_COREDUMP)) {
 		if (signal->flags & SIGNAL_GROUP_COREDUMP)
-			pr_debug("[%d:%s] is in the middle of dying so skip sig %d\n", p->pid, p->comm, sig);
-
-		return 0;
+			return sig == SIGKILL;
 		/*
 		 * The process is in the middle of dying, nothing to do.
 		 */
@@ -2496,7 +2493,7 @@ EXPORT_SYMBOL(unblock_all_signals);
  */
 SYSCALL_DEFINE0(restart_syscall)
 {
-	struct restart_block *restart = &current_thread_info()->restart_block;
+	struct restart_block *restart = &current->restart_block;
 	return restart->fn(restart);
 }
 

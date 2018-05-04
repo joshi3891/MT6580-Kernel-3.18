@@ -157,7 +157,6 @@ source "drivers/clk/qcom/Kconfig"
 endmenu
 
 source "drivers/clk/bcm/Kconfig"
-source "drivers/clk/mediatek/Kconfig"
 source "drivers/clk/mvebu/Kconfig"
 
 source "drivers/clk/samsung/Kconfig"

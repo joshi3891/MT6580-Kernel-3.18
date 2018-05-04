@@ -22,16 +22,19 @@
 *.lst
 *.symtypes
 *.order
-modules.builtin
 *.elf
 *.bin
 *.gz
 *.bz2
 *.lzma
 *.xz
+*.lz4
 *.lzo
 *.patch
 *.gcno
+modules.builtin
+Module.symvers
+*.dwo
 
 #
 # Top-level generic files
@@ -43,7 +46,6 @@ modules.builtin
 /vmlinuz
 /System.map
 /Module.markers
-/Module.symvers
 
 #
 # Debian directory (make deb-pkg)
@@ -62,28 +64,6 @@ modules.builtin
 include/config
 include/generated
 arch/*/include/generated
-include/config/auto.conf
-include/config/kernel.release
-include/config/tristate.conf
-include/generated/asm-offsets.h
-include/generated/autoconf.h
-include/generated/bounds.h
-include/generated/compile.h
-include/generated/utsrelease.h
-scripts/basic/bin2c
-scripts/basic/fixdep
-scripts/dtc/dtc
-scripts/kallsyms
-scripts/kconfig/conf
-scripts/kconfig/mconf
-scripts/mod/elfconfig.h
-scripts/mod/mk_elfconfig
-scripts/mod/modpost
-scripts/pnmtologo
-scripts/selinux/genheaders/genheaders
-scripts/selinux/mdp/mdp
-scripts/sortextable
-tools/dct/old_dct/DCT.log
 
 # stgit generated dirs
 patches-*
@@ -114,5 +94,5 @@ signing_key.priv
 signing_key.x509
 x509.genkey
 
-# Don't commit out folder
-/out/
+# Kconfig presets
+all.config

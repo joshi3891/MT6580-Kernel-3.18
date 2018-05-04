@@ -53,9 +53,7 @@
 #include <asm/uaccess.h>
 
 #include <trace/events/timer.h>
-#ifdef CONFIG_MTPROF
-#include "mt_sched_mon.h"
-#endif
+
 #include "timekeeping.h"
 
 /*
@@ -1219,13 +1217,7 @@ static void __run_hrtimer(struct hrtimer *timer, ktime_t *now)
 	 */
 	raw_spin_unlock(&cpu_base->lock);
 	trace_hrtimer_expire_entry(timer, now);
-#ifdef CONFIG_MTPROF
-	mt_trace_hrt_start(fn);
-#endif
 	restart = fn(timer);
-#ifdef CONFIG_MTPROF
-	mt_trace_hrt_end(fn);
-#endif
 	trace_hrtimer_expire_exit(timer);
 	raw_spin_lock(&cpu_base->lock);
 
@@ -1601,7 +1593,7 @@ long hrtimer_nanosleep(struct timespec *rqtp, struct timespec __user *rmtp,
 			goto out;
 	}
 
-	restart = &current_thread_info()->restart_block;
+	restart = &current->restart_block;
 	restart->fn = hrtimer_nanosleep_restart;
 	restart->nanosleep.clockid = t.timer.base->clockid;
 	restart->nanosleep.rmtp = rmtp;

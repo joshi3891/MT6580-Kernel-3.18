@@ -40,9 +40,9 @@ static void led_set_software_blink(struct led_classdev *led_cdev,
 	led_cdev->blink_delay_on = delay_on;
 	led_cdev->blink_delay_off = delay_off;
 
-	/* never on - don't blink */
+	/* never on - just set to off */
 	if (!delay_on) {
-		//__led_set_brightness(led_cdev, LED_OFF);//removed by kangqin for FCFAM-63	
+		__led_set_brightness(led_cdev, LED_OFF);
 		return;
 	}
 

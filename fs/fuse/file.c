@@ -7,7 +7,6 @@
 */
 
 #include "fuse_i.h"
-#include "mt_fuse.h"
 
 #include <linux/pagemap.h>
 #include <linux/slab.h>
@@ -18,7 +17,6 @@
 #include <linux/swap.h>
 #include <linux/aio.h>
 #include <linux/falloc.h>
-#include <asm/div64.h>
 
 static const struct file_operations fuse_direct_io_file_operations;
 
@@ -844,9 +842,9 @@ static void fuse_send_readpages(struct fuse_req *req, struct file *file)
 	if (fc->async_read) {
 		req->ff = fuse_file_get(ff);
 		req->end = fuse_readpages_end;
-		fuse_request_send_background_ex(fc, req, count);
+		fuse_request_send_background(fc, req);
 	} else {
-		fuse_request_send_ex(fc, req, count);
+		fuse_request_send(fc, req);
 		fuse_readpages_end(fc, req);
 		fuse_put_request(fc, req);
 	}
@@ -997,7 +995,7 @@ static size_t fuse_send_write(struct fuse_req *req, struct fuse_io_priv *io,
 	if (io->async)
 		return fuse_async_req_send(fc, req, count, io);
 
-	fuse_request_send_ex(fc, req, count);
+	fuse_request_send(fc, req);
 	return req->misc.write.out.size;
 }
 

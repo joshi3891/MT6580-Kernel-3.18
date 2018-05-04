@@ -427,11 +427,11 @@ enum {
 	EXT4_INODE_APPEND	= 5,	/* writes to file may only append */
 	EXT4_INODE_NODUMP	= 6,	/* do not dump file */
 	EXT4_INODE_NOATIME	= 7,	/* do not update atime */
-/* Reserved for compression usage... */
+/* Reserved for compression usage, co-opted for encryption usage */
 	EXT4_INODE_DIRTY	= 8,
 	EXT4_INODE_COMPRBLK	= 9,	/* One or more compressed clusters */
 	EXT4_INODE_NOCOMPR	= 10,	/* Don't compress */
-	EXT4_INODE_ENCRYPT	= 11,	/* Encrypted file */
+	EXT4_INODE_ENCRYPT	= 11,	/* Encrypted */
 /* End compression flags --- maybe not all used */
 	EXT4_INODE_INDEX	= 12,	/* hash-indexed directory */
 	EXT4_INODE_IMAGIC	= 13,	/* AFS directory */
@@ -2065,8 +2065,7 @@ void ext4_release_crypto_ctx(struct ext4_crypto_ctx *ctx);
 void ext4_restore_control_page(struct page *data_page);
 struct page *ext4_encrypt(struct inode *inode,
 			  struct page *plaintext_page);
-int ext4_decrypt(struct ext4_crypto_ctx *ctx, struct page *page);
-int ext4_decrypt_one(struct inode *inode, struct page *page);
+int ext4_decrypt(struct page *page);
 int ext4_encrypted_zeroout(struct inode *inode, struct ext4_extent *ex);
 
 #ifdef CONFIG_EXT4_FS_ENCRYPTION

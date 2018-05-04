@@ -1,5 +1,0 @@
-config MTK_EMI_MPU
-  bool "enable MTK_EMI_MPU"
-  default y
-  help
-    This enable MTK_EMI_MPU

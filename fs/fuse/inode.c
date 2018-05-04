@@ -7,7 +7,7 @@
 */
 
 #include "fuse_i.h"
-#include "mt_fuse.h"
+
 #include <linux/pagemap.h>
 #include <linux/slab.h>
 #include <linux/file.h>
@@ -407,9 +407,6 @@ static void fuse_put_super(struct super_block *sb)
 	fuse_conn_put(fc);
 }
 
-#ifdef CONFIG_TINNO_LOWMEMORY
-#define SDCARD_LIMIT_SIZE  (200 * 1024 * 1024)
-#endif
 static void convert_fuse_statfs(struct kstatfs *stbuf, struct fuse_kstatfs *attr)
 {
 	stbuf->f_type    = FUSE_SUPER_MAGIC;
@@ -421,20 +418,6 @@ static void convert_fuse_statfs(struct kstatfs *stbuf, struct fuse_kstatfs *attr
 	stbuf->f_files   = attr->files;
 	stbuf->f_ffree   = attr->ffree;
 	stbuf->f_namelen = attr->namelen;
-#ifdef SDCARD_LIMIT_SIZE
-	stbuf->f_blocks  -= (u32)SDCARD_LIMIT_SIZE/attr->bsize;
-	
-	if(stbuf->f_bfree < ((u32)SDCARD_LIMIT_SIZE/attr->bsize)){
-		stbuf->f_bfree = 0;
-	}else{
-		stbuf->f_bfree	 -= (u32)SDCARD_LIMIT_SIZE/attr->bsize;
-	}
-	if(stbuf->f_bavail < ((u32)SDCARD_LIMIT_SIZE/attr->bsize)){
-		stbuf->f_bavail = 0;
-	}else{
-		stbuf->f_bavail	 -= (u32)SDCARD_LIMIT_SIZE/attr->bsize;
-	}
-#endif
 	/* fsid is left zero */
 }
 
@@ -1336,7 +1319,7 @@ static int __init fuse_init(void)
 
 	sanitize_global_limit(&max_user_bgreq);
 	sanitize_global_limit(&max_user_congthresh);
-	fuse_iolog_init();
+
 	return 0;
 
  err_sysfs_cleanup:
@@ -1357,7 +1340,6 @@ static void __exit fuse_exit(void)
 	fuse_sysfs_cleanup();
 	fuse_fs_cleanup();
 	fuse_dev_cleanup();
-	fuse_iolog_exit();
 }
 
 module_init(fuse_init);

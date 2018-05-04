@@ -1,3 +1,0 @@
-obj-$(CONFIG_MTK_IRTX_SUPPORT) += $(subst ",,$(CONFIG_MTK_PLATFORM))/
-obj-$(CONFIG_MTK_IRTX_PWM_SUPPORT) += $(subst ",,$(CONFIG_MTK_PLATFORM))/
-

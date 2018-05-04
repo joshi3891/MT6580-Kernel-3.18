@@ -1125,9 +1125,9 @@ EXPORT_SYMBOL(drm_edid_is_valid);
  * Return: 0 on success or -1 on failure.
  */
 static int
-drm_do_probe_ddc_edid(void *data, u8 *buf, unsigned int block, size_t len)
+drm_do_probe_ddc_edid(struct i2c_adapter *adapter, unsigned char *buf,
+		      int block, int len)
 {
-	struct i2c_adapter *adapter = data;
 	unsigned char start = block * EDID_LENGTH;
 	unsigned char segment = block >> 1;
 	unsigned char xfers = segment ? 3 : 2;
@@ -1184,26 +1184,8 @@ static bool drm_edid_is_zero(u8 *in_edid, int length)
 	return true;
 }
 
-/**
- * drm_do_get_edid - get EDID data using a custom EDID block read function
- * @connector: connector we're probing
- * @get_edid_block: EDID block read function
- * @data: private data passed to the block read function
- *
- * When the I2C adapter connected to the DDC bus is hidden behind a device that
- * exposes a different interface to read EDID blocks this function can be used
- * to get EDID data using a custom block read function.
- *
- * As in the general case the DDC bus is accessible by the kernel at the I2C
- * level, drivers must make all reasonable efforts to expose it as an I2C
- * adapter and use drm_get_edid() instead of abusing this function.
- *
- * Return: Pointer to valid EDID or NULL if we couldn't find any.
- */
-struct edid *drm_do_get_edid(struct drm_connector *connector,
-	int (*get_edid_block)(void *data, u8 *buf, unsigned int block,
-			      size_t len),
-	void *data)
+static u8 *
+drm_do_get_edid(struct drm_connector *connector, struct i2c_adapter *adapter)
 {
 	int i, j = 0, valid_extensions = 0;
 	u8 *block, *new;
@@ -1214,7 +1196,7 @@ struct edid *drm_do_get_edid(struct drm_connector *connector,
 
 	/* base block fetch */
 	for (i = 0; i < 4; i++) {
-		if (get_edid_block(data, block, 0, EDID_LENGTH))
+		if (drm_do_probe_ddc_edid(adapter, block, 0, EDID_LENGTH))
 			goto out;
 		if (drm_edid_block_valid(block, 0, print_bad_edid))
 			break;
@@ -1228,7 +1210,7 @@ struct edid *drm_do_get_edid(struct drm_connector *connector,
 
 	/* if there's no extensions, we're done */
 	if (block[0x7e] == 0)
-		return (struct edid *)block;
+		return block;
 
 	new = krealloc(block, (block[0x7e] + 1) * EDID_LENGTH, GFP_KERNEL);
 	if (!new)
@@ -1237,7 +1219,7 @@ struct edid *drm_do_get_edid(struct drm_connector *connector,
 
 	for (j = 1; j <= block[0x7e]; j++) {
 		for (i = 0; i < 4; i++) {
-			if (get_edid_block(data,
+			if (drm_do_probe_ddc_edid(adapter,
 				  block + (valid_extensions + 1) * EDID_LENGTH,
 				  j, EDID_LENGTH))
 				goto out;
@@ -1265,7 +1247,7 @@ struct edid *drm_do_get_edid(struct drm_connector *connector,
 		block = new;
 	}
 
-	return (struct edid *)block;
+	return block;
 
 carp:
 	if (print_bad_edid) {
@@ -1278,7 +1260,6 @@ out:
 	kfree(block);
 	return NULL;
 }
-EXPORT_SYMBOL_GPL(drm_do_get_edid);
 
 /**
  * drm_probe_ddc() - probe DDC presence
@@ -1308,10 +1289,12 @@ EXPORT_SYMBOL(drm_probe_ddc);
 struct edid *drm_get_edid(struct drm_connector *connector,
 			  struct i2c_adapter *adapter)
 {
-	if (!drm_probe_ddc(adapter))
-		return NULL;
+	struct edid *edid = NULL;
 
-	return drm_do_get_edid(connector, drm_do_probe_ddc_edid, adapter);
+	if (drm_probe_ddc(adapter))
+		edid = (struct edid *)drm_do_get_edid(connector, adapter);
+
+	return edid;
 }
 EXPORT_SYMBOL(drm_get_edid);
 
@@ -3145,12 +3128,9 @@ void drm_edid_to_eld(struct drm_connector *connector, struct edid *edid)
 		}
 	}
 	eld[5] |= sad_count << 4;
+	eld[2] = (20 + mnl + sad_count * 3 + 3) / 4;
 
-	eld[DRM_ELD_BASELINE_ELD_LEN] =
-		DIV_ROUND_UP(drm_eld_calc_baseline_block_size(eld), 4);
-
-	DRM_DEBUG_KMS("ELD size %d, SAD count %d\n",
-		      drm_eld_size(eld), sad_count);
+	DRM_DEBUG_KMS("ELD size %d, SAD count %d\n", (int)eld[2], sad_count);
 }
 EXPORT_SYMBOL(drm_edid_to_eld);
 
