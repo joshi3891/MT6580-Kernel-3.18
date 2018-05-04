@@ -174,9 +174,10 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 				completion = ktime_get();
 				delta_us = ktime_us_delta(completion,
 							  mrq->io_start);
-				blk_update_latency_hist(&host->io_lat_s,
-					(mrq->data->flags & MMC_DATA_READ),
-					delta_us);
+				blk_update_latency_hist(
+					(mrq->data->flags & MMC_DATA_READ) ?
+					&host->io_lat_read :
+					&host->io_lat_write, delta_us);
 			}
 #endif
 			trace_mmc_blk_rw_end(cmd->opcode, cmd->arg, mrq->data);
@@ -336,8 +337,10 @@ EXPORT_SYMBOL(mmc_start_bkops);
  */
 static void mmc_wait_data_done(struct mmc_request *mrq)
 {
-	mrq->host->context_info.is_done_rcv = true;
-	wake_up_interruptible(&mrq->host->context_info.wait);
+	struct mmc_context_info *context_info = &mrq->host->context_info;
+
+	context_info->is_done_rcv = true;
+	wake_up_interruptible(&context_info->wait);
 }
 
 static void mmc_wait_done(struct mmc_request *mrq)
@@ -842,11 +845,11 @@ void mmc_set_data_timeout(struct mmc_data *data, const struct mmc_card *card)
 	/*
 	 * Some cards require longer data read timeout than indicated in CSD.
 	 * Address this by setting the read timeout to a "reasonably high"
-	 * value. For the cards tested, 300ms has proven enough. If necessary,
+	 * value. For the cards tested, 600ms has proven enough. If necessary,
 	 * this value can be increased if other problematic cards require this.
 	 */
 	if (mmc_card_long_read_time(card) && data->flags & MMC_DATA_READ) {
-		data->timeout_ns = 300000000;
+		data->timeout_ns = 600000000;
 		data->timeout_clks = 0;
 	}
 
@@ -1099,6 +1102,30 @@ void mmc_set_ungated(struct mmc_host *host)
 }
 #endif
 
+int mmc_execute_tuning(struct mmc_card *card)
+{
+	struct mmc_host *host = card->host;
+	u32 opcode;
+	int err;
+
+	if (!host->ops->execute_tuning)
+		return 0;
+
+	if (mmc_card_mmc(card))
+		opcode = MMC_SEND_TUNING_BLOCK_HS200;
+	else
+		opcode = MMC_SEND_TUNING_BLOCK;
+
+	mmc_host_clk_hold(host);
+	err = host->ops->execute_tuning(host, opcode);
+	mmc_host_clk_release(host);
+
+	if (err)
+		pr_err("%s: tuning execution failed\n", mmc_hostname(host));
+
+	return err;
+}
+
 /*
  * Change the bus mode (open drain/push-pull) of a host.
  */
@@ -1237,6 +1264,34 @@ int mmc_of_parse_voltage(struct device_node *np, u32 *mask)
 EXPORT_SYMBOL(mmc_of_parse_voltage);
 
 #endif /* CONFIG_OF */
+
+static int mmc_of_get_func_num(struct device_node *node)
+{
+	u32 reg;
+	int ret;
+
+	ret = of_property_read_u32(node, "reg", &reg);
+	if (ret < 0)
+		return ret;
+
+	return reg;
+}
+
+struct device_node *mmc_of_find_child_device(struct mmc_host *host,
+		unsigned func_num)
+{
+	struct device_node *node;
+
+	if (!host->parent || !host->parent->of_node)
+		return NULL;
+
+	for_each_child_of_node(host->parent->of_node, node) {
+		if (mmc_of_get_func_num(node) == func_num)
+			return node;
+	}
+
+	return NULL;
+}
 
 #ifdef CONFIG_REGULATOR
 
@@ -2670,6 +2725,14 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 		if (!err)
 			break;
 
+		if (!mmc_card_is_removable(host)) {
+			dev_warn(mmc_dev(host),
+				 "pre_suspend failed for non-removable host: "
+				 "%d\n", err);
+			/* Avoid removing non-removable hosts */
+			break;
+		}
+
 		/* Calling bus_ops->remove() with a claimed host can deadlock */
 		host->bus_ops->remove(host);
 		mmc_claim_host(host);
@@ -2772,8 +2835,14 @@ static ssize_t
 latency_hist_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct mmc_host *host = cls_dev_to_mmc_host(dev);
+	size_t written_bytes;
 
-	return blk_latency_hist_show(&host->io_lat_s, buf);
+	written_bytes = blk_latency_hist_show("Read", &host->io_lat_read,
+			buf, PAGE_SIZE);
+	written_bytes += blk_latency_hist_show("Write", &host->io_lat_write,
+			buf + written_bytes, PAGE_SIZE - written_bytes);
+
+	return written_bytes;
 }
 
 /*
@@ -2791,9 +2860,10 @@ latency_hist_store(struct device *dev, struct device_attribute *attr,
 
 	if (kstrtol(buf, 0, &value))
 		return -EINVAL;
-	if (value == BLK_IO_LAT_HIST_ZERO)
-		blk_zero_latency_hist(&host->io_lat_s);
-	else if (value == BLK_IO_LAT_HIST_ENABLE ||
+	if (value == BLK_IO_LAT_HIST_ZERO) {
+		memset(&host->io_lat_read, 0, sizeof(host->io_lat_read));
+		memset(&host->io_lat_write, 0, sizeof(host->io_lat_write));
+	} else if (value == BLK_IO_LAT_HIST_ENABLE ||
 		 value == BLK_IO_LAT_HIST_DISABLE)
 		host->latency_hist_enabled = value;
 	return count;

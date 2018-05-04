@@ -49,6 +49,8 @@ struct swap_info_struct;
 struct seq_file;
 struct workqueue_struct;
 struct iov_iter;
+struct fscrypt_info;
+struct fscrypt_operations;
 
 extern void __init inode_init(void);
 extern void __init inode_init_early(void);
@@ -623,6 +625,10 @@ struct inode {
 	struct hlist_head	i_fsnotify_marks;
 #endif
 
+#if IS_ENABLED(CONFIG_FS_ENCRYPTION)
+	struct fscrypt_info	*i_crypt_info;
+#endif
+
 	void			*i_private; /* fs or device private pointer */
 };
 
@@ -906,12 +912,11 @@ int locks_in_grace(struct net *);
  * FIXME: should we create a separate "struct lock_request" to help distinguish
  * these two uses?
  *
- * The i_flock list is ordered by:
+ * The varous i_flctx lists are ordered by:
  *
- * 1) lock type -- FL_LEASEs first, then FL_FLOCK, and finally FL_POSIX
- * 2) lock owner
- * 3) lock range start
- * 4) lock range end
+ * 1) lock owner
+ * 2) lock range start
+ * 3) lock range end
  *
  * Obviously, the last two criteria only matter for POSIX locks.
  */
@@ -1218,6 +1223,9 @@ struct super_block {
 	const struct xattr_handler **s_xattr;
 
 	struct list_head	s_inodes;	/* all inodes */
+
+	const struct fscrypt_operations	*s_cop;
+
 	struct hlist_bl_head	s_anon;		/* anonymous dentries for (nfs) exporting */
 	struct list_head	s_mounts;	/* list of mounts; _not_ for fs use */
 	struct block_device	*s_bdev;
@@ -1562,7 +1570,6 @@ struct inode_operations {
 	int (*set_acl)(struct inode *, struct posix_acl *, int);
 
 	/* WARNING: probably going away soon, do not use! */
-	int (*dentry_open)(struct dentry *, struct file *, const struct cred *);
 } ____cacheline_aligned;
 
 ssize_t rw_copy_check_uvector(int type, const struct iovec __user * uvector,
@@ -1626,6 +1633,7 @@ struct super_operations {
 #define S_IMA		1024	/* Inode has an associated IMA struct */
 #define S_AUTOMOUNT	2048	/* Automount/referral quasi-directory */
 #define S_NOSEC		4096	/* no suid or xattr security attributes */
+#define S_ENCRYPTED	16384	/* Encrypted file (using fs/crypto/) */
 
 /*
  * Note that nosuid etc flags are inode-specific: setting some file-system
@@ -1663,6 +1671,7 @@ struct super_operations {
 #define IS_IMA(inode)		((inode)->i_flags & S_IMA)
 #define IS_AUTOMOUNT(inode)	((inode)->i_flags & S_AUTOMOUNT)
 #define IS_NOSEC(inode)		((inode)->i_flags & S_NOSEC)
+#define IS_ENCRYPTED(inode)	((inode)->i_flags & S_ENCRYPTED)
 
 #define IS_WHITEOUT(inode)	(S_ISCHR(inode->i_mode) && \
 				 (inode)->i_rdev == WHITEOUT_DEV)
@@ -1734,8 +1743,12 @@ struct super_operations {
 #define __I_DIO_WAKEUP		9
 #define I_DIO_WAKEUP		(1 << I_DIO_WAKEUP)
 #define I_LINKABLE		(1 << 10)
+#define I_DIRTY_TIME		(1 << 11)
+#define __I_DIRTY_TIME_EXPIRED	12
+#define I_DIRTY_TIME_EXPIRED	(1 << __I_DIRTY_TIME_EXPIRED)
 
 #define I_DIRTY (I_DIRTY_SYNC | I_DIRTY_DATASYNC | I_DIRTY_PAGES)
+#define I_DIRTY_ALL (I_DIRTY | I_DIRTY_TIME)
 
 extern void __mark_inode_dirty(struct inode *, int);
 static inline void mark_inode_dirty(struct inode *inode)
@@ -1901,6 +1914,7 @@ extern int current_umask(void);
 
 extern void ihold(struct inode * inode);
 extern void iput(struct inode *);
+extern int generic_update_time(struct inode *, struct timespec *, int);
 
 static inline struct inode *file_inode(const struct file *f)
 {
@@ -1964,8 +1978,9 @@ static inline int break_lease(struct inode *inode, unsigned int mode)
 {
 	/*
 	 * Since this check is lockless, we must ensure that any refcounts
-	 * taken are done before checking inode->i_flock. Otherwise, we could
-	 * end up racing with tasks trying to set a new lease on this file.
+	 * taken are done before checking i_flctx->flc_lease. Otherwise, we
+	 * could end up racing with tasks trying to set a new lease on this
+	 * file.
 	 */
 	smp_mb();
 	if (inode->i_flock)
@@ -1977,8 +1992,9 @@ static inline int break_deleg(struct inode *inode, unsigned int mode)
 {
 	/*
 	 * Since this check is lockless, we must ensure that any refcounts
-	 * taken are done before checking inode->i_flock. Otherwise, we could
-	 * end up racing with tasks trying to set a new lease on this file.
+	 * taken are done before checking i_flctx->flc_lease. Otherwise, we
+	 * could end up racing with tasks trying to set a new lease on this
+	 * file.
 	 */
 	smp_mb();
 	if (inode->i_flock)
@@ -2086,8 +2102,7 @@ extern long do_sys_open(int dfd, const char __user *filename, int flags,
 extern struct file *file_open_name(struct filename *, int, umode_t);
 extern struct file *filp_open(const char *, int, umode_t);
 extern struct file *file_open_root(struct dentry *, struct vfsmount *,
-				   const char *, int);
-extern int vfs_open(const struct path *, struct file *, const struct cred *);
+				   const char *, int, umode_t);
 extern struct file * dentry_open(const struct path *, int, const struct cred *);
 extern int filp_close(struct file *, fl_owner_t id);
 
@@ -2844,5 +2859,7 @@ static inline bool dir_relax(struct inode *inode)
 	mutex_lock(&inode->i_mutex);
 	return !IS_DEADDIR(inode);
 }
+
+extern void inode_nohighmem(struct inode *inode);
 
 #endif /* _LINUX_FS_H */
