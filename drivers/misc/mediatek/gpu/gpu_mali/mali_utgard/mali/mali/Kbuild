@@ -155,7 +155,7 @@ ccflags-$(CONFIG_MALI400_UMP) += -I$(DRIVER_DIR)/../../ump/include/ump
 ccflags-$(CONFIG_MALI400_DEBUG) += -DDEBUG
 
 # Use our defines when compiling
-ccflags-y += -I$(DRIVER_DIR) -I$(DRIVER_DIR)/include -I$(DRIVER_DIR)/common -I$(DRIVER_DIR)/linux -I$(DRIVER_DIR)/platform -Wno-date-time
+ccflags-y += -I$(DRIVER_DIR) -I$(DRIVER_DIR)/include -I$(DRIVER_DIR)/common -I$(DRIVER_DIR)/linux -I$(DRIVER_DIR)/platform
 
 # Get subversion revision number, fall back to only ${MALI_RELEASE_NAME} if no svn info is available
 MALI_RELEASE_NAME=$(shell cat $(DRIVER_DIR)/.version 2> /dev/null)
